@@ -6,8 +6,13 @@ import { listen } from '@tauri-apps/api/event'
 import 'foundation-ui/all.css'  // Material 3 Expressive tokens and components
 import { MMenuPopup, MTrayPopup } from 'foundation-ui/popup'
 import { popupTransport, trayTransport } from '../composables/menuPopupTransport.js'
+import TrayOnlineMode from './TrayOnlineMode.vue'
 
 // one window, two pages in it: the context menus of the main window (MMenuPopup) and the tray icon's menus (MTrayPopup, src-tauri/src/tray/popup_input.rs); each answers only its own events
 const menus = popupTransport({ invoke, listen })
 const tray = trayTransport({ invoke, listen })
-createApp({ render: () => [h(MMenuPopup, { transport: menus }), h(MTrayPopup, { transport: tray })] }).mount('#app')
+createApp({
+  render: () => [h(MMenuPopup, { transport: menus }), h(MTrayPopup, { transport: tray }, {
+    'start-page': ({ state, token }) => h(TrayOnlineMode, { key: token, state, token, transport: tray }),
+  })],
+}).mount('#app')

@@ -462,6 +462,7 @@ fn main() {
             tray::tray_prefs_get,
             tray::tray_prefs_set,
             tray::tray_popup_act,
+            tray::tray_popup_refresh_online_mode,
             tray::tray_popup_set,
             tray::tray_layout_set,
             tray::tray_popup_layout,

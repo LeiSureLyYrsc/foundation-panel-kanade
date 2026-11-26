@@ -584,6 +584,8 @@ pub struct TrayState {
     pub owner: String,
     #[serde(default)]
     pub capabilities: Vec<String>,
+    #[serde(default, deserialize_with = "read_tray_kanade")]
+    pub kanade: Option<serde_json::Value>,
     #[serde(default)]
     pub status: String,
     #[serde(default)]
@@ -610,6 +612,53 @@ pub struct TrayState {
     pub operation: TrayOperationState,
     #[serde(default)]
     pub launch: TrayLaunchState,
+}
+
+impl TrayState {
+    pub(crate) fn online_mode(&self) -> serde_json::Value {
+        let advertised = self.capabilities.iter().any(|value| value == "kanade-v1");
+        serde_json::json!({
+            "capabilities": if advertised { &["kanade-v1"][..] } else { &[][..] },
+            "kanade": self.kanade,
+        })
+    }
+}
+
+// Strip everything except the v1 primitives before the popup can receive it. A malformed
+// optional field must not break the tray protocol, native PIN or any other tray feature.
+fn read_tray_kanade<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<serde_json::Value>, D::Error> {
+    use serde_json::{Map, Value};
+    let Some(raw) = Option::<Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    let mut fields = Map::new();
+    const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+    if raw.get("version") == Some(&serde_json::json!(1)) {
+        fields.insert("version".into(), Value::from(1));
+        for key in ["updated_at_ms", "pending_count"] {
+            if let Some(n) = raw.get(key).and_then(Value::as_u64).filter(|&n| n <= MAX_SAFE_INTEGER) {
+                fields.insert(key.into(), Value::from(n));
+            }
+        }
+        for (key, allowed) in [
+            ("component", &["available", "disabled", "missing", "incompatible", "unavailable"][..]),
+            ("registration", &["registered", "unregistered"][..]),
+            ("control", &["online", "offline", "unreachable"][..]),
+            ("transport", &["standby", "protected"][..]),
+        ] {
+            if let Some(word) = raw.get(key).and_then(Value::as_str).filter(|v| allowed.contains(v)) {
+                fields.insert(key.into(), Value::from(word));
+            }
+        }
+        for key in ["connection_authorized", "native_paired", "streaming"] {
+            if let Some(value) = raw.get(key).and_then(Value::as_bool) {
+                fields.insert(key.into(), Value::from(value));
+            }
+        }
+    }
+    Ok(Some(Value::Object(fields)))
 }
 
 /// The launch splash the host asks for (`launch` in the tray state, capability `launch-splash-v1`). It is handled on its own path (launch_splash.rs), so two
@@ -713,7 +762,7 @@ fn validate_tray_state(state: &TrayState) -> Result<(), String> {
 
 pub(crate) fn parse_tray_state_json(response_text: &str) -> Result<TrayState, String> {
     let state: TrayState = serde_json::from_str(response_text)
-        .map_err(|e| format!("Parse tray state failed: {}; body: {}", e, response_text))?;
+        .map_err(|_| "Parse tray state failed: invalid JSON or field type".to_string())?;
     validate_tray_state(&state)?;
     Ok(state)
 }
@@ -721,6 +770,21 @@ pub(crate) fn parse_tray_state_json(response_text: &str) -> Result<TrayState, St
 #[cfg(test)]
 mod tray_protocol_tests {
     use super::*;
+
+    #[test]
+    fn online_mode_does_not_forward_unknown_data_or_break_the_tray() {
+        let fixture = |optional: &str| {
+            parse_tray_state_json(&format!(
+                r#"{{"protocol_version":{TRAY_PROTOCOL_VERSION},"instance_id":"core","owner":"gui","capabilities":["state-v1","kanade-v1"]{optional}}}"#
+            )).unwrap().online_mode()
+        };
+        assert_eq!(fixture("")["kanade"], serde_json::Value::Null);
+        for raw in ["false", "[]", r#"{"version":2,"control":"online"}"#] {
+            assert_eq!(fixture(&format!(r#","kanade":{raw}"#))["kanade"], serde_json::json!({}));
+        }
+        let result = fixture(r#","kanade":{"version":1,"updated_at_ms":1764153600123,"pending_count":2,"control":"online","native_paired":false,"connection_authorized":"true","streaming":[],"component":"custom","request_id":"ignored"}"#);
+        assert_eq!(result, serde_json::json!({"capabilities":["kanade-v1"],"kanade":{"version":1,"updated_at_ms":1764153600123u64,"pending_count":2,"control":"online","native_paired":false}}));
+    }
 
     fn valid_state() -> TrayState {
         TrayState {
@@ -1147,17 +1211,14 @@ async fn request_tray_state(tray_state_url: &str) -> Result<TrayState, String> {
         .map_err(|e| format!("Request tray state failed: {}", e))?;
 
     let status = response.status();
+    if !status.is_success() {
+        return Err(format!("Tray state request failed (status {status})"));
+    }
+
     let response_text = response
         .text()
         .await
         .map_err(|e| format!("Read tray state response failed: {}", e))?;
-
-    if !status.is_success() {
-        return Err(format!(
-            "Tray state request failed (status {}): {}",
-            status, response_text
-        ));
-    }
 
     parse_tray_state_json(&response_text)
 }

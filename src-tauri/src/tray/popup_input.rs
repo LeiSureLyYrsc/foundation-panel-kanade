@@ -353,8 +353,15 @@ pub(super) async fn build_state(app: &AppHandle) -> Value {
     let (auto_start, user_mode) = (false, false);
 
     let prefs = tray_prefs::current();
+    // Read the projection at emit time rather than retaining a snapshot across the awaits above.
+    let online_mode = {
+        let runtime = TRAY_RUNTIME_STATE.lock().unwrap_or_else(|p| p.into_inner());
+        let (state, connection, _) = runtime.menu_snapshot();
+        state.filter(|_| connection == CoreConnectionState::Connected).map(|state| state.online_mode())
+    };
     json!({
         "locale": locale,
+        "online_mode": online_mode,
         "connection": match connection { CoreConnectionState::Connected => "connected", CoreConnectionState::Connecting => "connecting", CoreConnectionState::Disconnected => "disconnected" },
         "host": tray_state.as_ref().map(|state| host_word(&state.status)).unwrap_or("idle"),
         "rtss": crate::rtss::is_rtss_installed(),

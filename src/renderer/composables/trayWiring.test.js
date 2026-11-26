@@ -55,7 +55,8 @@ test('the commands and events: both sides name the same ones, and main.rs regist
 
 test('the menu window page shows both menus; the tray page does not tell the host the window loaded twice', () => {
   const main = read('src/renderer/ctxmenu/main.js')
-  assert.match(main, /MMenuPopup, MTrayPopup/); assert.match(main, /h\(MTrayPopup, \{ transport: tray \}\)/)
+  assert.match(main, /MMenuPopup, MTrayPopup/); assert.match(main, /h\(MTrayPopup, \{ transport: tray \}, \{/)
+  assert.match(main, /'start-page': \(\{ state, token \}\) => h\(TrayOnlineMode/)
   assert.match(read('src/renderer/composables/menuPopupTransport.js'), /loaded: \(\) => \{\}/)
 })
 

@@ -1445,11 +1445,35 @@ pub async fn tray_popup_layout(app: AppHandle, token: u64, tiles: Option<Vec<Str
 /// Async on purpose: a synchronous command runs on the main thread inside the page's own WebView2 callback, and the big screen (made on demand) built its WebView there and never came back
 /// (the whole panel stopped). The item runs on a worker thread, as the in-app 大屏 button does.
 #[tauri::command]
-pub async fn tray_popup_act(app: AppHandle, token: u64, id: String) {
+pub async fn tray_popup_act(app: AppHandle, window: tauri::WebviewWindow, token: u64, id: String) {
+    if id == "online_native_pin" {
+        if window.label() == crate::ctx_popup::POPUP_LABEL {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if crate::ctx_popup::pick_tray(&handle, token) {
+                    actions::open_pairing_window(&handle);
+                }
+            });
+        }
+        return;
+    }
     let ran = tauri::async_runtime::spawn_blocking(move || popup_input::act(&app, token, &id)).await;
     if let Err(error) = ran {
         error!("tray: the chosen item did not run: {error}");
     }
+}
+
+/// Read through the existing authenticated local tray client, never the selected remote host.
+#[tauri::command]
+pub async fn tray_popup_refresh_online_mode(window: tauri::WebviewWindow, token: u64) -> Result<serde_json::Value, String> {
+    if window.label() != crate::ctx_popup::POPUP_LABEL || !crate::ctx_popup::is_current_tray_popup(token) {
+        return Err("No active tray popup".into());
+    }
+    let state = sunshine::get_tray_state().await.map_err(|_| "Online mode state unavailable".to_string())?;
+    if !crate::ctx_popup::is_current_tray_popup(token) {
+        return Err("No active tray popup".into());
+    }
+    Ok(state.online_mode())
 }
 
 /// A slider of the tray's quick page was released (key: resolution | refresh | dpi | bitrate): the menu stays open; resolves when the value is set, rejects with the reason. What it resolves with is a notice

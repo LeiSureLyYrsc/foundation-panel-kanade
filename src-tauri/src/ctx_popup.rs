@@ -485,7 +485,7 @@ pub async fn open_tray(app: AppHandle, variant: crate::tray_prefs::Variant, menu
 
 /// The tray menu on screen (if any) has this token: an item was chosen; the window closes. Returns whether the token was the open menu's.
 pub fn pick_tray(app: &AppHandle, token: u64) -> bool {
-    if state().as_ref().is_some_and(|o| o.token == token && o.tray.is_some()) {
+    if is_current_tray_popup(token) {
         finish(app, None, Reason::Pick);
         return true;
     }
@@ -503,6 +503,10 @@ pub fn update_tray_state(app: &AppHandle, state_value: Value) {
 /// A menu of the tray is on screen.
 pub fn tray_menu_open() -> bool {
     state().as_ref().is_some_and(|o| o.tray.is_some())
+}
+
+pub(crate) fn is_current_tray_popup(token: u64) -> bool {
+    state().as_ref().is_some_and(|o| o.token == token && o.tray.is_some())
 }
 
 /// The page drew the menu (or drew another level of it) and measured it: size and place the window, show it.

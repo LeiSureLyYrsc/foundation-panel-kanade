@@ -25,6 +25,7 @@ export function trayTransport({ invoke, listen }) {
     onClose: (cb) => listen('ctx-popup:close', (event) => cb(event.payload)),
     ready: (token, size) => quiet(invoke('ctx_popup_ready', { token, width: size.w, height: size.h })),
     act: (token, id) => quiet(invoke('tray_popup_act', { token, id })),
+    refreshOnlineMode: (token) => invoke('tray_popup_refresh_online_mode', { token }),
     // a slider was released: unlike the others this one's answer matters (the page shows the busy state and the failure), so the rejection is not swallowed
     set: (token, key, value) => invoke('tray_popup_set', { token, key, value }),
     // the quick panel was edited (the pencil): the record { tiles, sliders } (null = the default); the host stores it and sends the state back
